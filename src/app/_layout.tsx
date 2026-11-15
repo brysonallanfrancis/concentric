@@ -1,18 +1,33 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { useColorScheme } from "react-native";
+import { SettingsProvider, useSettings } from "@/context/SettingsContext";
+import { useTheme } from "@/theme/theme";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
-
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+    <SettingsProvider>
+      <RootStack />
+    </SettingsProvider>
+  );
+}
+
+function RootStack() {
+  const scheme = useColorScheme();
+  const colors = useTheme();
+  const { settings } = useSettings();
+
+  return (
+    <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+      <Stack screenOptions={{ headerTintColor: colors.tint, contentStyle: { backgroundColor: colors.background } }}>
+        <Stack.Protected guard={!settings.onboarded}>
+          <Stack.Screen name="onboarding" options={{ title: "Your Goal", headerLargeTitleEnabled: true }} />
+        </Stack.Protected>
+        <Stack.Protected guard={settings.onboarded}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="set" options={{ presentation: "modal", headerShown: false }} />
+          <Stack.Screen name="goal" options={{ presentation: "modal", title: "Your Goal" }} />
+        </Stack.Protected>
+      </Stack>
     </ThemeProvider>
   );
 }
