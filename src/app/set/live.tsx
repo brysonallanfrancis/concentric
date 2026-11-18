@@ -1,5 +1,5 @@
 import { router, Stack, useLocalSearchParams, useNavigation, usePreventRemove } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { CalibrationCard } from "@/components/CalibrationCard";
 import { Callout } from "@/components/Callout";
@@ -13,18 +13,14 @@ import { RepCounter } from "@/components/RepCounter";
 import { StatusPill } from "@/components/StatusPill";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, goalRanges, mountInfo, provisionalExercises } from "@/data/catalog";
-import { previewSet } from "@/data/placeholderHistory";
+import { demoTraceFor } from "@/data/demoTraces";
 import { classifySet, completedReps } from "@/engine/failure";
+import { useLiveSet } from "@/hooks/useLiveSet";
 import { formatLoad, formatVelocity } from "@/lib/format";
-import { failureBuzz, repTap, successBuzz, warningBuzz } from "@/lib/haptics";
-import type { MountType } from "@/models/types";
+import { warningBuzz } from "@/lib/haptics";
+import type { MountType, RepResult } from "@/models/types";
+import { createLiveSensorSource, createReplaySensorSource } from "@/sensors/sensorSource";
 import { radius, spacing, type, useTheme } from "@/theme/theme";
-
-type Phase = "ready" | "calibrating" | "tracking";
-
-const calibrationMs = 2000;
-const previewRepIntervalMs = 2400;
-const endAfterFailureMs = 1500;
 
 export default function LiveSetScreen() {
   const colors = useTheme();
@@ -34,28 +30,18 @@ export default function LiveSetScreen() {
   const loadLb = Number(params.loadLb ?? 0);
   const mount = params.mount ?? exercise.defaultMount;
   const range = goalRanges[settings.goal];
-  const preview = previewSet(exercise.id, loadLb, settings.goal);
 
-  const [phase, setPhase] = useState<Phase>("ready");
-  const [shownCount, setShownCount] = useState(0);
   const [showQuitPrompt, setShowQuitPrompt] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaving = useRef(false);
+  const [left, setLeft] = useState(false);
   const navigation = useNavigation();
+  const live = useLiveSet({ haptics: settings.haptics, onFailureDetected: finish });
 
-
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  const shownReps = preview.reps.slice(0, shownCount);
-  const completed = completedReps(shownReps);
+  const completed = completedReps(live.reps);
   const lastVelocity = completed.length > 0 ? completed[completed.length - 1].meanVelocity : null;
-  const classification = classifySet(shownReps, exercise.mvt);
-
+  const classification = classifySet(live.reps, exercise.mvt);
   const loadText = formatLoad(exercise.kind, loadLb, settings.units);
+  const sourceLabel = settings.demoMode ? "Demo · replaying a recorded set" : `Tracking · ${mountInfo[mount].label.toLowerCase()}`;
 
   function lockSheet(locked: boolean) {
     navigation.getParent()?.setOptions({ gestureEnabled: !locked });
@@ -63,41 +49,26 @@ export default function LiveSetScreen() {
 
   function leave() {
     leaving.current = true;
-    if (timer.current) clearTimeout(timer.current);
+    setLeft(true);
+    live.stop();
     lockSheet(false);
   }
 
-  function handleBegin() {
+  async function handleBegin() {
     lockSheet(true);
-    setPhase("calibrating");
-    repTap(settings.haptics);
-    timer.current = setTimeout(() => {
-      setPhase("tracking");
-      successBuzz(settings.haptics);
-      scheduleRep(0);
-    }, calibrationMs);
+    const source = settings.demoMode ? createReplaySensorSource(demoTraceFor(exercise.kind)) : createLiveSensorSource();
+    const error = await live.begin(source);
+    if (error) {
+      lockSheet(false);
+      Alert.alert("Can't start tracking", error);
+    }
   }
 
-  function scheduleRep(count: number) {
-    timer.current = setTimeout(() => {
-      const next = count + 1;
-      const rep = preview.reps[count];
-      setShownCount(next);
-      if (rep.failed) {
-        failureBuzz(settings.haptics);
-        timer.current = setTimeout(() => finish(next), endAfterFailureMs);
-        return;
-      }
-      repTap(settings.haptics);
-      if (next < preview.reps.length) scheduleRep(next);
-    }, previewRepIntervalMs);
-  }
-
-  function finish(count: number) {
+  function finish(reps: RepResult[]) {
     leave();
     router.replace({
       pathname: "/set/summary",
-      params: { exerciseId: exercise.id, mount, loadLb: String(loadLb), reps: String(count) },
+      params: { exerciseId: exercise.id, mount, loadLb: String(loadLb), reps: JSON.stringify(reps) },
     });
   }
 
@@ -107,7 +78,7 @@ export default function LiveSetScreen() {
       setShowQuitPrompt(true);
       return;
     }
-    finish(shownCount);
+    finish(live.reps);
   }
 
   function confirmCancel(onConfirm: () => void) {
@@ -125,19 +96,19 @@ export default function LiveSetScreen() {
   }
 
   function handleClose() {
-    if (phase === "ready") {
+    if (live.phase === "ready") {
       router.back();
       return;
     }
     confirmCancel(() => router.back());
   }
 
-  usePreventRemove(phase !== "ready", ({ data }) => {
+  usePreventRemove(live.phase !== "ready" && !left, ({ repeat }) => {
     if (leaving.current) {
-      navigation.dispatch(data.action);
+      repeat();
       return;
     }
-    confirmCancel(() => navigation.dispatch(data.action));
+    confirmCancel(repeat);
   });
 
   return (
@@ -149,8 +120,15 @@ export default function LiveSetScreen() {
         }}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {phase === "ready" && (
+        {live.phase === "ready" && (
           <View style={styles.ready}>
+            {settings.demoMode && (
+              <Callout
+                tone="info"
+                title="Demo mode is on"
+                message="Begin replays a recorded set through the same rep detection used with real sensors. Turn it off in Settings to track your own lift."
+              />
+            )}
             <MountIllustration mount={mount} />
             <Text style={[type.title, { color: colors.text }]}>Mount your phone</Text>
             <Text style={[type.subhead, { color: colors.textSecondary }]}>
@@ -159,11 +137,11 @@ export default function LiveSetScreen() {
           </View>
         )}
 
-        {phase === "calibrating" && <CalibrationCard />}
+        {live.phase === "calibrating" && <CalibrationCard />}
 
-        {phase === "tracking" && (
+        {live.phase === "tracking" && (
           <>
-            <StatusPill label={`Tracking · ${mountInfo[mount].label.toLowerCase()}`} />
+            <StatusPill label={sourceLabel} />
             {showQuitPrompt && lastVelocity !== null && (
               <Callout
                 tone="warning"
@@ -178,15 +156,15 @@ export default function LiveSetScreen() {
             <GoalRangeMeter reps={completed.length} range={range} />
             <View style={styles.chart}>
               <Text style={[type.sectionHeader, { color: colors.textSecondary }]}>Each rep</Text>
-              <RepBarChart reps={shownReps} mvt={exercise.mvt} minimumSlots={Math.max(5, range.min)} />
+              <RepBarChart reps={live.reps} mvt={exercise.mvt} minimumSlots={Math.max(5, range.min)} />
             </View>
           </>
         )}
       </ScrollView>
 
       <View style={[styles.footer, { backgroundColor: colors.background }]}>
-        {phase === "ready" && <PrimaryButton title="Begin" large onPress={handleBegin} />}
-        {phase === "tracking" && !showQuitPrompt && (
+        {live.phase === "ready" && <PrimaryButton title="Begin" large onPress={handleBegin} />}
+        {live.phase === "tracking" && !showQuitPrompt && (
           <>
             <Text style={[type.footnote, styles.hint, { color: colors.textSecondary }]}>
               Keep going until you can&apos;t. A tap on every rep; we&apos;ll catch the rep that fails.
@@ -194,7 +172,7 @@ export default function LiveSetScreen() {
             <PrimaryButton title="End Set" variant="dark" large onPress={handleEndSet} />
           </>
         )}
-        {phase === "tracking" && showQuitPrompt && (
+        {live.phase === "tracking" && showQuitPrompt && (
           <View style={styles.choice}>
             <View style={styles.choiceButton}>
               <PrimaryButton title="Keep Going" variant="tinted" large onPress={() => setShowQuitPrompt(false)} />

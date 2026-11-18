@@ -1,6 +1,6 @@
 import { classifySet } from "@/engine/failure";
 import type { Exercise, Goal, RepResult, Session, SetRecord } from "@/models/types";
-import { findExercise, goalRanges, provisionalExercises } from "./catalog";
+import { findExercise, goalRanges } from "./catalog";
 
 const placeholderOneRepMaxLb: Record<string, number> = {
   "back-squat": 300,
@@ -34,7 +34,7 @@ function velocityAt(exercise: Exercise, loadLb: number): number {
   return exercise.mvt + (fastest - exercise.mvt) * (1 - loadLb / oneRepMax);
 }
 
-export function buildReps(exercise: Exercise, loadLb: number, completed: number, endsInFailure: boolean, lastAboveMvt: number): RepResult[] {
+function buildReps(exercise: Exercise, loadLb: number, completed: number, endsInFailure: boolean, lastAboveMvt: number): RepResult[] {
   const lastVelocity = exercise.mvt + lastAboveMvt;
   const first = Math.max(velocityAt(exercise, loadLb), lastVelocity + 0.15);
   const reps: RepResult[] = Array.from({ length: completed }, (_, index) => {
@@ -104,26 +104,4 @@ export function setsForExercise(exerciseId: string): SetRecord[] {
 
 export function lastSetFor(exerciseId: string): SetRecord | undefined {
   return setsForExercise(exerciseId)[0];
-}
-
-export function previewSet(exerciseId: string, loadLb: number, goal: Goal): SetRecord {
-  seed = 23;
-  const exercise = findExercise(exerciseId) ?? provisionalExercises[0];
-  const range = goalRanges[goal];
-  const reps =
-    exercise.kind === "bodyweight"
-      ? buildReps(exercise, loadLb, range.min + 1, false, 0.12)
-      : buildReps(exercise, loadLb, Math.min(range.max - 1, range.min + 3), true, 0.03);
-  const classification = classifySet(reps, exercise.mvt);
-  return {
-    id: "preview",
-    exerciseId: exercise.id,
-    performedAt: new Date().toISOString(),
-    loadLb,
-    mount: exercise.defaultMount,
-    goal,
-    reps,
-    outcome: classification.outcome,
-    repsLeftEstimate: classification.repsLeftEstimate,
-  };
 }

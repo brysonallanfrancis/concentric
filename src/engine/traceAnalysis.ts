@@ -8,6 +8,7 @@ export const provisionalAnalysisSettings = {
   stillAcceleration: 0.25,
   stillRotationDegPerSecond: 25,
   movingVelocity: 0.05,
+  turnaroundSearchHighPassHz: 0.15,
   minimumRepRom: 0.08,
   partialRomFraction: 0.7,
   maxEccentricGapSeconds: 1.5,
@@ -53,7 +54,8 @@ export function analyzeTrace(samples: MotionSample[], settings: AnalysisSettings
   const still = findStillSamples(samples, vertical, sampleRateHz, settings);
   const rawVelocity = cumulativeIntegral(vertical, t);
 
-  const firstPassVelocity = removeDrift(rawVelocity, still);
+  const slowDrift = zeroPhaseLowPass(rawVelocity, sampleRateHz, settings.turnaroundSearchHighPassHz);
+  const firstPassVelocity = rawVelocity.map((value, index) => (still[index] ? 0 : value - slowDrift[index]));
   const firstPassPhases = findPhases(firstPassVelocity, t, settings);
   const turnarounds = new Set(firstPassPhases.flatMap((phase) => [phase.startIndex, phase.endIndex]));
   const anchors = still.map((isStill, index) => isStill || turnarounds.has(index));
@@ -116,21 +118,35 @@ function findPhases(velocity: number[], t: number[], settings: AnalysisSettings)
     let end = index;
     while (end < velocity.length - 1 && Math.sign(velocity[end + 1]) === sign && velocity[end + 1] !== 0) end++;
 
-    const phase = measurePhase(velocity, t, start, end, sign > 0 ? "up" : "down");
-    if (phase.rom >= settings.minimumRepRom) phases.push(phase);
+    const finished = start > 0 && end < velocity.length - 1;
+    const phase = measurePhase(velocity, t, start, end, sign > 0 ? "up" : "down", settings.movingVelocity);
+    if (finished && phase.rom >= settings.minimumRepRom) phases.push(phase);
     index = end + 1;
   }
   return phases;
 }
 
-function measurePhase(velocity: number[], t: number[], start: number, end: number, direction: Phase["direction"]): Phase {
+function measurePhase(
+  velocity: number[],
+  t: number[],
+  start: number,
+  end: number,
+  direction: Phase["direction"],
+  movingVelocity: number,
+): Phase {
   let rom = 0;
   let peak = 0;
+  let movingSum = 0;
+  let movingCount = 0;
   for (let i = start + 1; i <= end; i++) {
     rom += Math.abs((velocity[i] + velocity[i - 1]) / 2) * (t[i] - t[i - 1]);
-    peak = Math.max(peak, Math.abs(velocity[i]));
+    const speed = Math.abs(velocity[i]);
+    peak = Math.max(peak, speed);
+    if (speed >= movingVelocity) {
+      movingSum += speed;
+      movingCount++;
+    }
   }
-  const seconds = t[end] - t[start];
   return {
     direction,
     startIndex: start,
@@ -138,7 +154,7 @@ function measurePhase(velocity: number[], t: number[], start: number, end: numbe
     startT: t[start],
     endT: t[end],
     rom,
-    meanVelocity: seconds > 0 ? rom / seconds : 0,
+    meanVelocity: movingCount > 0 ? movingSum / movingCount : 0,
     peakVelocity: peak,
   };
 }

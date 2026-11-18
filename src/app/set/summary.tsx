@@ -10,11 +10,11 @@ import { Tag } from "@/components/Tag";
 import { TextFieldRow } from "@/components/TextFieldRow";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, formatGoalRange, goalRanges, provisionalExercises } from "@/data/catalog";
-import { previewSet } from "@/data/placeholderHistory";
 import { classifySet } from "@/engine/failure";
 import { recommendNextSet } from "@/engine/progression";
 import { formatLoad, formatVelocity, plural } from "@/lib/format";
 import { averageEccentric, averageVelocity } from "@/lib/sets";
+import type { RepResult } from "@/models/types";
 import { radius, spacing, type, useTheme } from "@/theme/theme";
 
 export default function SummaryScreen() {
@@ -24,7 +24,7 @@ export default function SummaryScreen() {
   const exercise = findExercise(params.exerciseId) ?? provisionalExercises[0];
   const loadLb = Number(params.loadLb ?? 0);
   const range = goalRanges[settings.goal];
-  const reps = previewSet(exercise.id, loadLb, settings.goal).reps.slice(0, Number(params.reps ?? 0));
+  const reps = parseReps(params.reps);
   const [note, setNote] = useState("");
 
   const classification = classifySet(reps, exercise.mvt);
@@ -82,6 +82,15 @@ export default function SummaryScreen() {
       </View>
     </View>
   );
+}
+
+function parseReps(value: string | undefined): RepResult[] {
+  if (!value) return [];
+  try {
+    return JSON.parse(value) as RepResult[];
+  } catch {
+    return [];
+  }
 }
 
 const styles = StyleSheet.create({

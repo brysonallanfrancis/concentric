@@ -3,6 +3,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { DeviceMotion, type DeviceMotionMeasurement } from "expo-sensors";
 import { useEffect, useRef, useState } from "react";
 import { verticalAcceleration } from "@/engine/vertical";
+import { createSampleConverter } from "./motionSample";
 import type { MotionSample } from "./trace";
 
 export const requestedIntervalMs = 10;
@@ -32,7 +33,7 @@ export function useMotionRecorder() {
   const recentVertical = useRef<number[]>([]);
   const subscription = useRef<{ remove: () => void } | null>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const firstTimestamp = useRef<number | null>(null);
+  const toSample = useRef<ReturnType<typeof createSampleConverter>>(createSampleConverter());
   const lastRefresh = useRef(0);
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export function useMotionRecorder() {
   function beginRecording() {
     samples.current = [];
     recentVertical.current = [];
-    firstTimestamp.current = null;
+    toSample.current = createSampleConverter();
     lastRefresh.current = 0;
     DeviceMotion.setUpdateInterval(requestedIntervalMs);
     subscription.current = DeviceMotion.addListener(handleMeasurement);
@@ -84,7 +85,7 @@ export function useMotionRecorder() {
   }
 
   function handleMeasurement(measurement: DeviceMotionMeasurement) {
-    const sample = toSample(measurement);
+    const sample = toSample.current(measurement);
     if (!sample) return;
     samples.current.push(sample);
 
@@ -100,24 +101,6 @@ export function useMotionRecorder() {
       sampleRateHz: elapsedSeconds > 0 ? (samples.current.length - 1) / elapsedSeconds : 0,
       recentVertical: [...recentVertical.current],
     });
-  }
-
-  function toSample(measurement: DeviceMotionMeasurement): MotionSample | null {
-    const { acceleration, accelerationIncludingGravity: total, rotationRate } = measurement;
-    if (!acceleration) return null;
-    if (firstTimestamp.current === null) firstTimestamp.current = acceleration.timestamp;
-    return {
-      t: round(acceleration.timestamp - firstTimestamp.current, 6),
-      ax: round(acceleration.x),
-      ay: round(acceleration.y),
-      az: round(acceleration.z),
-      gx: round(total.x - acceleration.x),
-      gy: round(total.y - acceleration.y),
-      gz: round(total.z - acceleration.z),
-      rx: round(rotationRate?.alpha ?? 0, 2),
-      ry: round(rotationRate?.beta ?? 0, 2),
-      rz: round(rotationRate?.gamma ?? 0, 2),
-    };
   }
 
   function clearCountdown() {
@@ -136,9 +119,4 @@ export function useMotionRecorder() {
   }
 
   return { status, countdown, live, start, stop };
-}
-
-function round(value: number, digits = 4): number {
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
 }
