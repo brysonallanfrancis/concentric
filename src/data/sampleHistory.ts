@@ -1,8 +1,8 @@
 import { classifySet } from "@/engine/failure";
-import type { Exercise, Goal, RepResult, Session, SetRecord } from "@/models/types";
+import type { Exercise, Goal, RepResult, SetRecord } from "@/models/types";
 import { findExercise, goalRanges } from "./catalog";
 
-const placeholderOneRepMaxLb: Record<string, number> = {
+const sampleOneRepMaxLb: Record<string, number> = {
   "back-squat": 300,
   "bench-press": 225,
   "overhead-press": 145,
@@ -14,22 +14,22 @@ const placeholderOneRepMaxLb: Record<string, number> = {
   "chest-press": 260,
 };
 
-const sessionTemplates = [
-  { name: "Lower Body", exerciseIds: ["back-squat", "deadlift", "leg-press"] },
-  { name: "Upper Body", exerciseIds: ["bench-press", "pull-up", "overhead-press", "dip"] },
+const workouts = [
+  ["back-squat", "deadlift", "leg-press"],
+  ["bench-press", "pull-up", "overhead-press", "dip"],
 ];
 
 const dayMs = 24 * 60 * 60 * 1000;
 const weeks = 13;
 
-let seed = 11;
+let seed = 0;
 function random(): number {
   seed = (seed * 16807) % 2147483647;
   return seed / 2147483647;
 }
 
 function velocityAt(exercise: Exercise, loadLb: number): number {
-  const oneRepMax = placeholderOneRepMaxLb[exercise.id];
+  const oneRepMax = sampleOneRepMaxLb[exercise.id];
   const fastest = exercise.kind === "bodyweight" ? 1.0 : 1.15;
   return exercise.mvt + (fastest - exercise.mvt) * (1 - loadLb / oneRepMax);
 }
@@ -50,9 +50,9 @@ function buildReps(exercise: Exercise, loadLb: number, completed: number, endsIn
   return reps;
 }
 
-function placeholderSet(exercise: Exercise, goal: Goal, week: number, performedAt: Date): SetRecord {
+function sampleSet(exercise: Exercise, goal: Goal, week: number, performedAt: Date): SetRecord {
   const range = goalRanges[goal];
-  const oneRepMax = placeholderOneRepMaxLb[exercise.id] * (0.95 + week * 0.006);
+  const oneRepMax = sampleOneRepMaxLb[exercise.id] * (0.95 + week * 0.006);
   const targetReps = range.min + Math.floor(random() * (range.max - range.min + 1));
   const rawLoad = oneRepMax / (1 + targetReps / 30);
   const loadLb = Math.round(rawLoad / exercise.loadStepLb) * exercise.loadStepLb;
@@ -74,34 +74,23 @@ function placeholderSet(exercise: Exercise, goal: Goal, week: number, performedA
     reps,
     outcome: classification.outcome,
     repsLeftEstimate: classification.repsLeftEstimate,
+    note: "",
   };
 }
 
-function buildPlaceholderSessions(): Session[] {
+export function buildSampleSets(): SetRecord[] {
+  seed = 11;
   const today = new Date();
   today.setHours(17, 30, 0, 0);
-  const sessions: Session[] = [];
+  const sets: SetRecord[] = [];
   for (let week = 0; week < weeks; week++) {
-    sessionTemplates.forEach((template, index) => {
+    workouts.forEach((exerciseIds, index) => {
       const daysAgo = (weeks - week) * 7 - index * 3 - 1;
-      const performedAt = new Date(today.getTime() - daysAgo * dayMs);
-      const sets = template.exerciseIds.map((id, order) =>
-        placeholderSet(findExercise(id)!, "hypertrophy", week, new Date(performedAt.getTime() + order * 6 * 60 * 1000)),
-      );
-      sessions.push({ id: `session-${performedAt.getTime()}`, name: template.name, performedAt: performedAt.toISOString(), sets });
+      const performedAt = today.getTime() - daysAgo * dayMs;
+      exerciseIds.forEach((id, order) => {
+        sets.push(sampleSet(findExercise(id)!, "hypertrophy", week, new Date(performedAt + order * 6 * 60 * 1000)));
+      });
     });
   }
-  return sessions.reverse();
-}
-
-export const placeholderSessions = buildPlaceholderSessions();
-
-export const todaysPlanIds = ["back-squat", "pull-up", "leg-press"];
-
-export function setsForExercise(exerciseId: string): SetRecord[] {
-  return placeholderSessions.flatMap((session) => session.sets).filter((set) => set.exerciseId === exerciseId);
-}
-
-export function lastSetFor(exerciseId: string): SetRecord | undefined {
-  return setsForExercise(exerciseId)[0];
+  return sets;
 }

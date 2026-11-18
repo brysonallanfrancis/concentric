@@ -39,6 +39,7 @@ export type SetRecord = {
   reps: RepResult[];
   outcome: SetOutcome;
   repsLeftEstimate: number;
+  note: string;
 };
 
 export type Session = {

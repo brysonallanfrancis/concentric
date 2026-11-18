@@ -1,20 +1,36 @@
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { ListRow } from "@/components/ListRow";
 import { Section } from "@/components/Section";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { StepperRow } from "@/components/StepperRow";
 import { ToggleRow } from "@/components/ToggleRow";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { formatGoalRange, goalRanges } from "@/data/catalog";
-import { formatWeight } from "@/lib/format";
+import { buildSampleSets } from "@/data/sampleHistory";
+import { formatWeight, plural } from "@/lib/format";
 import type { Units } from "@/models/types";
 import { spacing } from "@/theme/theme";
 
 export default function SettingsScreen() {
   const { settings, updateSettings } = useSettings();
+  const { sets, addSets, clearHistory } = useHistory();
   const range = goalRanges[settings.goal];
+
+  function loadSampleHistory() {
+    const sample = buildSampleSets();
+    addSets(sample);
+    Alert.alert("Sample history added", `Added ${plural(sample.length, "set")} from the last 3 months.`);
+  }
+
+  function confirmClearHistory() {
+    Alert.alert("Clear all history?", "Every saved set will be deleted. This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Clear History", style: "destructive", onPress: clearHistory },
+    ]);
+  }
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
@@ -65,8 +81,17 @@ export default function SettingsScreen() {
         <ToggleRow label="Haptics" value={settings.haptics} onChange={(haptics) => updateSettings({ haptics })} />
       </Section>
 
-      <Section title="Demo" footer="Replays recorded sets through the live screen, so you can try Concentric without lifting.">
-        <ToggleRow label="Demo mode" value={settings.demoMode} onChange={(demoMode) => updateSettings({ demoMode })} />
+      <Section
+        title="Demo"
+        footer="Demo mode replays recorded sets through the live screen, and sample history fills Progress with 3 months of sets, so you can try Concentric without lifting."
+      >
+        <ToggleRow label="Demo mode" value={settings.demoMode} onChange={(demoMode) => updateSettings({ demoMode })} showSeparator />
+        <ListRow title="Load Sample History" chevron onPress={loadSampleHistory} />
+      </Section>
+
+      <Section title="History">
+        <ListRow title="Saved sets" value={`${sets.length}`} showSeparator />
+        <ListRow title="Clear History" onPress={confirmClearHistory} />
       </Section>
 
       <Section title="Developer" footer="Records raw motion data from a set for tuning rep detection.">

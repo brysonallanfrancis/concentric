@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
+import { useHistory } from "@/context/HistoryContext";
 import { exerciseKinds, kindInfo } from "@/data/catalog";
-import { lastSetFor } from "@/data/placeholderHistory";
-import { describeSet } from "@/lib/sets";
+import { describeSet, lastSetFor } from "@/lib/sets";
 import type { Exercise, Units } from "@/models/types";
 import { spacing, type, useTheme } from "@/theme/theme";
 import { ListRow } from "./ListRow";
@@ -15,6 +15,7 @@ type Props = {
 
 export function ExerciseList({ exercises, units, onSelect }: Props) {
   const colors = useTheme();
+  const { sets } = useHistory();
   const groups = exerciseKinds
     .map((kind) => ({ kind, items: exercises.filter((exercise) => exercise.kind === kind) }))
     .filter((group) => group.items.length > 0);
@@ -31,7 +32,7 @@ export function ExerciseList({ exercises, units, onSelect }: Props) {
   return groups.map((group) => (
     <Section key={group.kind} title={kindInfo[group.kind].sectionTitle}>
       {group.items.map((exercise, index) => {
-        const last = lastSetFor(exercise.id);
+        const last = lastSetFor(sets, exercise.id);
         return (
           <ListRow
             key={exercise.id}

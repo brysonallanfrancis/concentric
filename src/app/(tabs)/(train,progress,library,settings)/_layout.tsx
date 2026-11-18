@@ -17,6 +17,7 @@ export default function TabStackLayout() {
       <Stack.Screen name="library" options={{ title: "Library", headerLargeTitleEnabled: true }} />
       <Stack.Screen name="settings" options={{ title: "Settings", headerLargeTitleEnabled: true }} />
       <Stack.Screen name="exercise/[id]" options={{ title: "" }} />
+      <Stack.Screen name="workout/[day]" options={{ title: "Workout" }} />
       <Stack.Screen name="record" options={{ title: "Record Trace" }} />
     </Stack>
   );

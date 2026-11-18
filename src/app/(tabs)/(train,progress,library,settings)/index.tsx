@@ -4,20 +4,23 @@ import { ListRow } from "@/components/ListRow";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { Section } from "@/components/Section";
 import { Tag } from "@/components/Tag";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
-import { findExercise, formatGoalRange, goalRanges, kindInfo } from "@/data/catalog";
-import { placeholderSessions, todaysPlanIds } from "@/data/placeholderHistory";
+import { findExercise, formatGoalRange, goalRanges, kindInfo, starterPlanIds } from "@/data/catalog";
 import { formatLongDate } from "@/lib/format";
-import { describeSession } from "@/lib/sets";
+import { describeSession, groupSessions } from "@/lib/sets";
 import { radius, spacing, type, useTheme } from "@/theme/theme";
 
 export default function TrainScreen() {
   const colors = useTheme();
   const { settings } = useSettings();
+  const { sets } = useHistory();
   const range = goalRanges[settings.goal];
-  const plan = todaysPlanIds.flatMap((id) => findExercise(id) ?? []);
-  const recent = placeholderSessions.slice(0, 3);
-  const lastExerciseId = placeholderSessions[0]?.sets[0]?.exerciseId;
+  const sessions = groupSessions(sets);
+  const recent = sessions.slice(0, 3);
+  const lastWorkoutIds = [...new Set([...(sessions[0]?.sets ?? [])].reverse().map((set) => set.exerciseId))];
+  const plan = (lastWorkoutIds.length > 0 ? lastWorkoutIds : starterPlanIds).flatMap((id) => findExercise(id) ?? []);
+  const lastExerciseId = lastWorkoutIds[0];
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
@@ -60,9 +63,22 @@ export default function TrainScreen() {
       </Section>
 
       <Section title="Recent">
-        {recent.map((session, index) => (
-          <ListRow key={session.id} title={session.name} subtitle={describeSession(session)} showSeparator={index < recent.length - 1} />
-        ))}
+        {recent.length === 0 ? (
+          <Text style={[type.subhead, styles.empty, { color: colors.textSecondary }]}>
+            No workouts yet. Your sets will show up here.
+          </Text>
+        ) : (
+          recent.map((session, index) => (
+            <ListRow
+              key={session.id}
+              title={session.name}
+              subtitle={describeSession(session)}
+              chevron
+              onPress={() => router.push({ pathname: "/workout/[day]", params: { day: session.id } })}
+              showSeparator={index < recent.length - 1}
+            />
+          ))
+        )}
       </Section>
     </ScrollView>
   );
@@ -87,6 +103,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  empty: {
+    padding: spacing.lg,
   },
   startText: {
     gap: 2,

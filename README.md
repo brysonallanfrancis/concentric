@@ -27,9 +27,9 @@ A React Native app built with Expo that uses your phone's motion sensors to meas
   - A haptic tap on every rep and a stronger buzz when a rep fails, so you never need to look at the screen
   - If you end the set while your reps are still fast, it tells you that you have more in you
 - **Set Summary**: the result, average and last-rep speed, negatives, the rep chart and a "Next time" recommendation
-- **Progress**: weight vs. speed for each set, an estimated one-rep max, and your bests
-- **Library**: every exercise with its recent sets and setup
-- **Settings**: goal, units (lb or kg), bodyweight, haptics, demo mode, and a developer screen for recording sensor data
+- **Progress**: your estimated one-rep max over time, worked out from the weight and reps of each set to failure, plus your weight × reps history
+- **Library**: every exercise with its setup, recent sets and a weight vs. speed chart
+- **Settings**: goal, units (lb or kg), bodyweight, haptics, demo mode, sample history, and a developer screen for recording sensor data
 
 ## How a Rep Is Measured
 
@@ -47,12 +47,13 @@ A React Native app built with Expo that uses your phone's motion sensors to meas
   - Barbell and machine lifts replay a squat set that ends in a failed rep
   - Bodyweight lifts replay a pull-up set that stops short
 - With demo mode off, Live Set uses your phone's sensors
+- **Settings → Load Sample History** adds 3 months of sample sets so Progress has something to show; **Clear History** removes everything
 
 ## Requirements
 
 - **Reusable components**: screens are built from shared components in `src/components/` (`Section`, `ListRow`, `SegmentedControl`, `StepperRow`, `RepBarChart`, `GoalRangeMeter`, `ScatterChart`, `MountIllustration`, `Callout`, and more)
-- **Context**: `SettingsContext` shares the goal, units, bodyweight, haptics and demo mode across the app; everything else is passed through props and route params
-- **Local storage**: settings are saved with `expo-sqlite/kv-store`; recorded sensor data is saved as JSON with `expo-file-system`
+- **Context**: `SettingsContext` shares the goal, units, bodyweight, haptics and demo mode, and `HistoryContext` shares your saved sets across the app; everything else is passed through props and route params
+- **Local storage**: every finished set is saved to a SQLite table with `expo-sqlite`, settings are saved with `expo-sqlite/kv-store`, and recorded sensor data is saved as JSON with `expo-file-system`
 - **Device functionality**: motion sensors (`expo-sensors`), haptics (`expo-haptics`), and keeping the screen awake during a set (`expo-keep-awake`)
 - **Professional look**: one set of color, type and spacing tokens in `src/theme/theme.ts`, light and dark mode, and SF Symbols
 
@@ -66,7 +67,7 @@ Changes since the wireframes:
 
 - Exercises are filtered by Barbell / Body / Machine with a search field, instead of Upper / Lower / Bodyweight sections
 - Begin and calibration moved from Phone Placement to the start of Live Set, since strapping the phone on after calibrating would throw it off
-- Review became Set Summary, and History became the Progress tab, which adds an estimated one-rep max
+- Review became Set Summary, and History became the Progress tab. Progress charts your estimated max over time instead of weight vs. speed, since one set per exercise puts most sets at nearly the same weight; weight vs. speed moved to each exercise's page
 - Added a "stopped short" prompt to Live Set for when you end a set while your reps are still fast
 - Added Library and Settings tabs, which weren't in the sketches
 - Weights are in pounds by default, with a kilogram option in Settings
@@ -91,9 +92,9 @@ I used inset grouped lists with standard 16 point margins and section headers, s
 - **`expo-sensors`**: `DeviceMotion` for acceleration, gravity and rotation rate
 - **`expo-haptics`**: rep, success and failure feedback
 - **`expo-keep-awake`**: keeps the screen on during a set
-- **`expo-sqlite`**: key-value storage for settings
+- **`expo-sqlite`**: the set history database and key-value storage for settings
 - **`expo-file-system`** and **`expo-sharing`**: saving and sharing recorded sensor data
-- **`react-native-svg`**: rep bars, the live acceleration chart, the progress scatter plot and the placement illustrations
+- **`react-native-svg`**: rep bars, the live acceleration chart, the progress and weight vs. speed charts and the placement illustrations
 - **`expo-symbols`**: SF Symbols on iOS and Material Symbols on Android
 
 ## Project Status
@@ -104,10 +105,10 @@ First submission. Working now:
 - Live rep detection from the phone's sensors, failure detection, and the three set results
 - Demo mode
 - Next-weight recommendations and the estimated one-rep max
+- Saving every set and its note to SQLite, which feeds Recent, Library, Progress and the pre-filled weight
 
 Still to come:
 
-- Saving sets to SQLite. History, Recent and Progress currently show sample data
 - Tuning the detection thresholds on real gym recordings (the current values are starting points from velocity-based training research)
 - Unit tests for `src/engine/` using recorded sets
 - Testing the weight-stack mount on machines, plus an app icon and splash screen

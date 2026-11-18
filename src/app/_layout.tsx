@@ -1,12 +1,15 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { useColorScheme } from "react-native";
+import { HistoryProvider } from "@/context/HistoryContext";
 import { SettingsProvider, useSettings } from "@/context/SettingsContext";
 import { useTheme } from "@/theme/theme";
 
 export default function RootLayout() {
   return (
     <SettingsProvider>
-      <RootStack />
+      <HistoryProvider>
+        <RootStack />
+      </HistoryProvider>
     </SettingsProvider>
   );
 }

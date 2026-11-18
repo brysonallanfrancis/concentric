@@ -67,3 +67,5 @@ export function findExercise(id: string): Exercise | undefined {
 export function needsSafetyPrompt(exercise: Exercise): boolean {
   return exercise.id === "back-squat" || exercise.id === "bench-press";
 }
+
+export const starterPlanIds = ["back-squat", "bench-press", "pull-up"];

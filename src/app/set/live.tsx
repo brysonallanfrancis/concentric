@@ -11,6 +11,7 @@ import { PrimaryButton } from "@/components/PrimaryButton";
 import { RepBarChart } from "@/components/RepBarChart";
 import { RepCounter } from "@/components/RepCounter";
 import { StatusPill } from "@/components/StatusPill";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, goalRanges, mountInfo, provisionalExercises } from "@/data/catalog";
 import { demoTraceFor } from "@/data/demoTraces";
@@ -25,6 +26,7 @@ import { radius, spacing, type, useTheme } from "@/theme/theme";
 export default function LiveSetScreen() {
   const colors = useTheme();
   const { settings } = useSettings();
+  const { addSets } = useHistory();
   const params = useLocalSearchParams<{ exerciseId: string; mount: MountType; loadLb: string }>();
   const exercise = findExercise(params.exerciseId) ?? provisionalExercises[0];
   const loadLb = Number(params.loadLb ?? 0);
@@ -66,13 +68,31 @@ export default function LiveSetScreen() {
 
   function finish(reps: RepResult[]) {
     leave();
-    router.replace({
-      pathname: "/set/summary",
-      params: { exerciseId: exercise.id, mount, loadLb: String(loadLb), reps: JSON.stringify(reps) },
-    });
+    const result = classifySet(reps, exercise.mvt);
+    const performedAt = new Date();
+    const id = `${performedAt.getTime()}`;
+    addSets([
+      {
+        id,
+        exerciseId: exercise.id,
+        performedAt: performedAt.toISOString(),
+        loadLb,
+        mount,
+        goal: settings.goal,
+        reps,
+        outcome: result.outcome,
+        repsLeftEstimate: result.repsLeftEstimate,
+        note: "",
+      },
+    ]);
+    router.replace({ pathname: "/set/summary", params: { setId: id } });
   }
 
   function handleEndSet() {
+    if (live.reps.length === 0) {
+      handleClose();
+      return;
+    }
     if (classification.outcome === "quitEarly" && !showQuitPrompt) {
       warningBuzz(settings.haptics);
       setShowQuitPrompt(true);
@@ -119,7 +139,7 @@ export default function LiveSetScreen() {
           headerLeft: () => <HeaderCloseButton label="Cancel set" onPress={handleClose} />,
         }}
       />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         {live.phase === "ready" && (
           <View style={styles.ready}>
             {settings.demoMode && (

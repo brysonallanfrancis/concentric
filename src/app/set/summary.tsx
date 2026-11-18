@@ -8,24 +8,41 @@ import { RepBarChart } from "@/components/RepBarChart";
 import { StatTile } from "@/components/StatTile";
 import { Tag } from "@/components/Tag";
 import { TextFieldRow } from "@/components/TextFieldRow";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, formatGoalRange, goalRanges, provisionalExercises } from "@/data/catalog";
 import { classifySet } from "@/engine/failure";
 import { recommendNextSet } from "@/engine/progression";
 import { formatLoad, formatVelocity, plural } from "@/lib/format";
 import { averageEccentric, averageVelocity } from "@/lib/sets";
-import type { RepResult } from "@/models/types";
+import type { SetRecord } from "@/models/types";
 import { radius, spacing, type, useTheme } from "@/theme/theme";
 
 export default function SummaryScreen() {
   const colors = useTheme();
+  const { sets } = useHistory();
+  const { setId } = useLocalSearchParams<{ setId: string }>();
+  const set = sets.find((candidate) => candidate.id === setId);
+
+  if (!set) {
+    return (
+      <View style={styles.missing}>
+        <Text style={[type.headline, { color: colors.text }]}>Set not found</Text>
+      </View>
+    );
+  }
+
+  return <SetSummary set={set} />;
+}
+
+function SetSummary({ set }: { set: SetRecord }) {
+  const colors = useTheme();
   const { settings } = useSettings();
-  const params = useLocalSearchParams<{ exerciseId: string; loadLb: string; reps: string }>();
-  const exercise = findExercise(params.exerciseId) ?? provisionalExercises[0];
-  const loadLb = Number(params.loadLb ?? 0);
-  const range = goalRanges[settings.goal];
-  const reps = parseReps(params.reps);
-  const [note, setNote] = useState("");
+  const { updateNote } = useHistory();
+  const exercise = findExercise(set.exerciseId) ?? provisionalExercises[0];
+  const { loadLb, reps } = set;
+  const range = goalRanges[set.goal];
+  const [note, setNote] = useState(set.note);
 
   const classification = classifySet(reps, exercise.mvt);
   const completed = classification.completedReps;
@@ -35,12 +52,17 @@ export default function SummaryScreen() {
   const negatives = averageEccentric(reps);
   const progression = recommendNextSet(exercise, range, loadLb, completed, classification.outcome);
 
+  function close(destination: "/" | "/set/pick") {
+    if (note.trim() !== set.note) updateNote(set.id, note.trim());
+    router.dismissTo(destination);
+  }
+
   return (
     <View style={styles.screen}>
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable onPress={() => router.dismissTo("/")} accessibilityRole="button" hitSlop={12}>
+            <Pressable onPress={() => close("/")} accessibilityRole="button" hitSlop={12}>
               <Text style={[type.headline, { color: colors.tint }]}>Done</Text>
             </Pressable>
           ),
@@ -78,24 +100,20 @@ export default function SummaryScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <PrimaryButton title="Next Exercise" large onPress={() => router.dismissTo("/set/pick")} />
+        <PrimaryButton title="Next Exercise" large onPress={() => close("/set/pick")} />
       </View>
     </View>
   );
 }
 
-function parseReps(value: string | undefined): RepResult[] {
-  if (!value) return [];
-  try {
-    return JSON.parse(value) as RepResult[];
-  } catch {
-    return [];
-  }
-}
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  missing: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     padding: spacing.lg,

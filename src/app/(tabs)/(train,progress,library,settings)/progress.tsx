@@ -2,26 +2,45 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ListRow } from "@/components/ListRow";
 import { OptionChips } from "@/components/OptionChips";
-import { ScatterChart } from "@/components/ScatterChart";
 import { Section } from "@/components/Section";
 import { SegmentedControl } from "@/components/SegmentedControl";
+import { TrendChart, type TrendPoint } from "@/components/TrendChart";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { provisionalExercises } from "@/data/catalog";
-import { setsForExercise } from "@/data/placeholderHistory";
-import { estimateOneRepMax, fitLine, type LoadVelocityPoint } from "@/engine/profile";
-import { formatVelocity, formatWeight } from "@/lib/format";
-import { fastestVelocity } from "@/lib/sets";
-import type { SetRecord } from "@/models/types";
+import { linearFit } from "@/engine/profile";
+import { formatDayDate, formatVelocity, formatWeight } from "@/lib/format";
+import { describeSet, estimatedMaxFor, setsForExercise } from "@/lib/sets";
+import type { Exercise, SetRecord } from "@/models/types";
 import { radius, spacing, type, useTheme } from "@/theme/theme";
 
 type TimeRange = "1M" | "3M" | "1Y";
 
 const rangeDays: Record<TimeRange, number> = { "1M": 31, "3M": 92, "1Y": 366 };
+const rangeLabel: Record<TimeRange, string> = { "1M": "the last month", "3M": "the last 3 months", "1Y": "the last year" };
 const dayMs = 24 * 60 * 60 * 1000;
-
-const trackedExercises = provisionalExercises.filter((exercise) => setsForExercise(exercise.id).length > 0);
+const recentSetLimit = 6;
 
 export default function ProgressScreen() {
+  const colors = useTheme();
+  const { sets: history } = useHistory();
+  const trackedExercises = provisionalExercises.filter((exercise) => setsForExercise(history, exercise.id).length > 0);
+
+  if (trackedExercises.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <Text style={[type.headline, { color: colors.text }]}>No sets yet</Text>
+        <Text style={[type.subhead, styles.emptyText, { color: colors.textSecondary }]}>
+          Finish a set and your estimated max, weights and reps will show up here.
+        </Text>
+      </View>
+    );
+  }
+
+  return <ProgressDetails history={history} trackedExercises={trackedExercises} />;
+}
+
+function ProgressDetails({ history, trackedExercises }: { history: SetRecord[]; trackedExercises: Exercise[] }) {
   const colors = useTheme();
   const { settings } = useSettings();
   const [exerciseName, setExerciseName] = useState(trackedExercises[0].name);
@@ -29,23 +48,26 @@ export default function ProgressScreen() {
   const [now] = useState(() => Date.now());
 
   const exercise = trackedExercises.find((candidate) => candidate.name === exerciseName) ?? trackedExercises[0];
-  const allSets = setsForExercise(exercise.id);
   const cutoff = now - rangeDays[timeRange] * dayMs;
-  const sets = allSets.filter((set) => Date.parse(set.performedAt) >= cutoff);
-  const earlierSets = allSets.filter((set) => {
-    const time = Date.parse(set.performedAt);
-    return time < cutoff && time >= cutoff - rangeDays[timeRange] * dayMs;
-  });
+  const sets = setsForExercise(history, exercise.id).filter((set) => Date.parse(set.performedAt) >= cutoff);
 
-  const points = toPoints(sets);
-  const fit = fitLine(points);
-  const oneRepMax = estimateOneRepMax(fit, exercise.mvt);
-  const earlierMax = estimateOneRepMax(fitLine(toPoints(earlierSets)), exercise.mvt);
-  const change = oneRepMax !== null && earlierMax !== null ? oneRepMax - earlierMax : null;
+  const points: TrendPoint[] = sets.flatMap((set) => {
+    const valueLb = estimatedMaxFor(set, settings.bodyweightLb);
+    return valueLb === null ? [] : [{ time: Date.parse(set.performedAt), valueLb, verified: set.outcome === "verified" }];
+  });
+  const trend = linearFit(
+    points.map((point) => point.time),
+    points.map((point) => point.valueLb),
+  );
+  const newest = points[0];
+  const oldest = points[points.length - 1];
+  const currentMax = newest && trend ? trend.intercept + trend.slope * newest.time : newest?.valueLb;
+  const change = trend && newest && oldest ? trend.slope * (newest.time - oldest.time) : null;
 
   const verified = sets.filter((set) => set.outcome === "verified").length;
-  const commonLoad = mostCommonLoad(sets);
-  const fastestAtCommon = Math.max(0, ...sets.filter((set) => set.loadLb === commonLoad).map((set) => fastestVelocity(set.reps)));
+  const speedSets = sets.filter((set) => set.loadLb === sets[0]?.loadLb && set.reps.length > 0);
+  const firstRepNow = speedSets[0]?.reps[0]?.meanVelocity;
+  const firstRepThen = speedSets.length > 1 ? speedSets[speedSets.length - 1].reps[0]?.meanVelocity : undefined;
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
@@ -71,63 +93,81 @@ export default function ProgressScreen() {
         />
       </View>
 
-      <Section title="Weight vs. speed" footer="Fastest rep of each set. The dashed line runs to your failure speed to estimate your max." padded>
-        {points.length > 0 ? (
-          <ScatterChart points={points} fit={fit} mvt={exercise.mvt} oneRepMaxLb={oneRepMax} units={settings.units} />
-        ) : (
-          <Text style={[type.subhead, { color: colors.textSecondary }]}>No sets in this time range yet.</Text>
-        )}
-        <View style={styles.legend}>
-          <View style={[styles.legendDot, { backgroundColor: colors.chartLine }]} />
-          <Text style={[type.footnote, { color: colors.textSecondary }]}>Set</Text>
-          <View style={[styles.legendDot, { backgroundColor: colors.failureLine }]} />
-          <Text style={[type.footnote, { color: colors.textSecondary }]}>Failure speed {formatVelocity(exercise.mvt)} m/s</Text>
-        </View>
-      </Section>
-
-      {oneRepMax !== null && (
+      {currentMax !== undefined && (
         <View style={[styles.maxCard, { backgroundColor: colors.surface }]} accessible>
-          <Text style={[type.footnote, { color: colors.textSecondary }]}>Estimated max (1RM)</Text>
-          <Text style={[type.metric, { color: colors.text }]}>{formatWeight(oneRepMax, settings.units)}</Text>
+          <Text style={[type.footnote, { color: colors.textSecondary }]}>
+            Estimated max (1RM){exercise.kind === "bodyweight" ? " · includes bodyweight" : ""}
+          </Text>
+          <Text style={[type.metric, { color: colors.text }]}>{formatWeight(currentMax, settings.units)}</Text>
           {change !== null && (
             <Text style={[type.subhead, { color: colors.textSecondary }]}>
               {change >= 0 ? "+" : "−"}
-              {formatWeight(Math.abs(change), settings.units)} vs. the {timeRange === "1M" ? "month" : "period"} before
+              {formatWeight(Math.abs(change), settings.units)} over {rangeLabel[timeRange]}
             </Text>
           )}
         </View>
       )}
 
-      <Section title="Bests">
-        {commonLoad !== null && (
+      <Section
+        title="Estimated max over time"
+        footer="Each set's weight and reps to failure, turned into a one-rep max. Hollow dots didn't reach verified failure, so they're less certain."
+        padded
+      >
+        {points.length > 0 ? (
+          <TrendChart points={points} trend={trend} units={settings.units} />
+        ) : (
+          <Text style={[type.subhead, { color: colors.textSecondary }]}>No sets in this time range yet.</Text>
+        )}
+        <View style={styles.legend}>
+          <View style={[styles.legendDot, { backgroundColor: colors.chartLine }]} />
+          <Text style={[type.footnote, { color: colors.textSecondary }]}>Verified failure</Text>
+          <View style={[styles.legendDot, styles.legendHollow, { borderColor: colors.chartLine }]} />
+          <Text style={[type.footnote, { color: colors.textSecondary }]}>Near or stopped short</Text>
+        </View>
+      </Section>
+
+      {sets.length > 0 && (
+        <Section title="Weight × reps">
+          {sets.slice(0, recentSetLimit).map((set, index, shown) => (
+            <ListRow
+              key={set.id}
+              title={describeSet(set, settings.units)}
+              subtitle={formatDayDate(set.performedAt)}
+              showSeparator={index < shown.length - 1}
+            />
+          ))}
+        </Section>
+      )}
+
+      <Section title="Summary">
+        {firstRepNow !== undefined && (
           <ListRow
-            title={`Fastest at ${formatWeight(commonLoad, settings.units)}`}
-            value={`${formatVelocity(fastestAtCommon)} m/s`}
+            title={`First-rep speed at ${formatWeight(sets[0].loadLb, settings.units)}`}
+            value={
+              firstRepThen !== undefined
+                ? `${formatVelocity(firstRepThen)} → ${formatVelocity(firstRepNow)} m/s`
+                : `${formatVelocity(firstRepNow)} m/s`
+            }
             showSeparator
           />
         )}
-        <ListRow title="Verified failures" value={`${verified} of ${sets.length} sets`} showSeparator />
-        <ListRow title="Sets tracked" value={`${sets.length}`} />
+        <ListRow title="Verified failures" value={`${verified} of ${sets.length} sets`} />
       </Section>
     </ScrollView>
   );
 }
 
-function toPoints(sets: SetRecord[]): LoadVelocityPoint[] {
-  return sets.map((set) => ({ loadLb: set.loadLb, velocity: fastestVelocity(set.reps) }));
-}
-
-function mostCommonLoad(sets: SetRecord[]): number | null {
-  const counts = new Map<number, number>();
-  for (const set of sets) counts.set(set.loadLb, (counts.get(set.loadLb) ?? 0) + 1);
-  let best: number | null = null;
-  for (const [load, count] of counts) {
-    if (best === null || count > (counts.get(best) ?? 0)) best = load;
-  }
-  return best;
-}
-
 const styles = StyleSheet.create({
+  empty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    padding: spacing.xl,
+  },
+  emptyText: {
+    textAlign: "center",
+  },
   content: {
     paddingBottom: spacing.xxl,
   },
@@ -141,13 +181,19 @@ const styles = StyleSheet.create({
   legend: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 6,
+    marginTop: spacing.sm,
   },
   legendDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     marginLeft: spacing.xs,
+  },
+  legendHollow: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
   },
   maxCard: {
     marginHorizontal: spacing.lg,

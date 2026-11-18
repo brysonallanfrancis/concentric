@@ -8,13 +8,13 @@ import { PrimaryButton } from "@/components/PrimaryButton";
 import { Section } from "@/components/Section";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { StepperRow } from "@/components/StepperRow";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, formatGoalRange, goalRanges, mountInfo, needsSafetyPrompt } from "@/data/catalog";
-import { lastSetFor } from "@/data/placeholderHistory";
 import { completedReps } from "@/engine/failure";
 import { recommendNextSet } from "@/engine/progression";
 import { formatWeight } from "@/lib/format";
-import { describeSet } from "@/lib/sets";
+import { describeSet, lastSetFor } from "@/lib/sets";
 import type { Exercise, Goal, MountType, Units } from "@/models/types";
 import { spacing, type, useTheme } from "@/theme/theme";
 
@@ -38,8 +38,9 @@ export default function SetupScreen() {
 }
 
 function SetupForm({ exercise, goal, units }: { exercise: Exercise; goal: Goal; units: Units }) {
+  const { sets } = useHistory();
   const range = goalRanges[goal];
-  const last = lastSetFor(exercise.id);
+  const last = lastSetFor(sets, exercise.id);
   const suggestion = last
     ? recommendNextSet(exercise, range, last.loadLb, completedReps(last.reps).length, last.outcome)
     : null;

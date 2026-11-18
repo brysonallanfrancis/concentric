@@ -2,12 +2,14 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ListRow } from "@/components/ListRow";
 import { PrimaryButton } from "@/components/PrimaryButton";
+import { ScatterChart } from "@/components/ScatterChart";
 import { Section } from "@/components/Section";
+import { useHistory } from "@/context/HistoryContext";
 import { useSettings } from "@/context/SettingsContext";
 import { findExercise, formatGoalRange, goalRanges, kindInfo, mountInfo } from "@/data/catalog";
-import { setsForExercise } from "@/data/placeholderHistory";
+import { estimateOneRepMax, fitLine } from "@/engine/profile";
 import { formatDayDate, formatVelocity } from "@/lib/format";
-import { describeSet } from "@/lib/sets";
+import { describeSet, fastestVelocity, setsForExercise } from "@/lib/sets";
 import { spacing, type, useTheme } from "@/theme/theme";
 
 const historyLimit = 8;
@@ -15,6 +17,7 @@ const historyLimit = 8;
 export default function ExerciseDetailScreen() {
   const colors = useTheme();
   const { settings } = useSettings();
+  const { sets } = useHistory();
   const { id } = useLocalSearchParams<{ id: string }>();
   const exercise = findExercise(id);
 
@@ -26,7 +29,11 @@ export default function ExerciseDetailScreen() {
     );
   }
 
-  const history = setsForExercise(exercise.id).slice(0, historyLimit);
+  const allSets = setsForExercise(sets, exercise.id);
+  const history = allSets.slice(0, historyLimit);
+  const points = allSets.map((set) => ({ loadLb: set.loadLb, velocity: fastestVelocity(set.reps) }));
+  const fit = fitLine(points);
+  const speedMax = estimateOneRepMax(fit, exercise.mvt);
   const range = goalRanges[settings.goal];
 
   return (
@@ -54,6 +61,15 @@ export default function ExerciseDetailScreen() {
           ))
         )}
       </Section>
+      {fit !== null && (
+        <Section
+          title="Weight vs. speed"
+          footer="Fastest rep of each set. Speed drops as the weight goes up; the dashed line runs to your failure speed."
+          padded
+        >
+          <ScatterChart points={points} fit={fit} mvt={exercise.mvt} oneRepMaxLb={speedMax} units={settings.units} />
+        </Section>
+      )}
       <View style={styles.action}>
         <PrimaryButton
           title="Start a Set"

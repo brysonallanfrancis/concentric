@@ -1,4 +1,5 @@
 import { completedReps } from "@/engine/failure";
+import { estimateMaxFromReps } from "@/engine/profile";
 import type { RepResult, Session, SetRecord, Units } from "@/models/types";
 import { findExercise } from "@/data/catalog";
 import { formatDayDate, formatLoad, plural } from "./format";
@@ -33,4 +34,42 @@ export function averageEccentric(reps: RepResult[]): number | null {
 
 export function fastestVelocity(reps: RepResult[]): number {
   return Math.max(0, ...completedReps(reps).map((rep) => rep.meanVelocity));
+}
+
+export function setsForExercise(sets: SetRecord[], exerciseId: string): SetRecord[] {
+  return sets.filter((set) => set.exerciseId === exerciseId);
+}
+
+export function lastSetFor(sets: SetRecord[], exerciseId: string): SetRecord | undefined {
+  return sets.find((set) => set.exerciseId === exerciseId);
+}
+
+export function dayKey(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function groupSessions(sets: SetRecord[]): Session[] {
+  const byDay = new Map<string, SetRecord[]>();
+  for (const set of sets) {
+    const day = dayKey(set.performedAt);
+    byDay.set(day, [...(byDay.get(day) ?? []), set]);
+  }
+  return [...byDay].map(([day, daySets]) => ({
+    id: day,
+    name: [...new Set([...daySets].reverse().map((set) => findExercise(set.exerciseId)?.name ?? "Exercise"))].join(", "),
+    performedAt: daySets[0].performedAt,
+    sets: daySets,
+  }));
+}
+
+export function repsToFailure(set: SetRecord): number {
+  const completed = completedReps(set.reps).length;
+  return set.outcome === "quitEarly" ? completed + set.repsLeftEstimate : completed;
+}
+
+export function estimatedMaxFor(set: SetRecord, bodyweightLb: number): number | null {
+  const kind = findExercise(set.exerciseId)?.kind;
+  const totalLb = kind === "bodyweight" ? bodyweightLb + set.loadLb : set.loadLb;
+  return estimateMaxFromReps(totalLb, repsToFailure(set));
 }
